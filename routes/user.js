@@ -1,42 +1,29 @@
 import express from "express";
 import prisma from "../utils/prisma.js";
-import multer from "multer";
-import path from "path";
-import { fileURLToPath } from "url";
-import { dirname } from "path";
-import fs from "fs";
+import { createUploader } from "../utils/multer.js";
+import { messaging } from "../lib/firebase.js";
 
-// --- Setup Directory Helper & Multer (Reuse existing setup) ---
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-
-// --- 1. Multer Configuration ---
-// Define where to save the uploaded files
-const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    // Ensure this directory exists or create it
-    const uploadDir = "uploads/profiles/";
-    if (!fs.existsSync(uploadDir)) {
-      fs.mkdirSync(uploadDir);
-    }
-    cb(null, uploadDir);
-  },
-  filename: function (req, file, cb) {
-    // Create a unique filename: fieldname-timestamp.jpg
-    const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
-    cb(
-      null,
-      file.fieldname + "-" + uniqueSuffix + path.extname(file.originalname),
-    );
-  },
-});
-
-const upload = multer({ storage: storage });
 const router = express.Router();
+
+// Initialize specific uploader for profiles
+const profileUpload = createUploader("profiles");
+const supportUpload = createUploader("supports");
+
+const sendPushNotificationToTopic = async (topic, title, body) => {
+  if (!topic) return;
+  try {
+    return await messaging.send({
+      notification: { title, body },
+      topic: topic,
+    });
+  } catch (err) {
+    console.error("FCM Error:", err.message);
+  }
+};
 
 router.put(
   "/update-profile",
-  upload.single("profile_image"),
+  profileUpload.single("profile_image"),
   async (req, res) => {
     try {
       const { mobile, name } = req.body;
@@ -75,7 +62,7 @@ router.put(
 
 router.put(
   "/update-profile-image",
-  upload.single("profile_image"),
+  profileUpload.single("profile_image"),
   async (req, res) => {
     try {
       const { mobile } = req.body;
@@ -106,6 +93,50 @@ router.put(
     } catch (error) {
       console.error("Update error:", error.message);
       res.status(500).json({ message: "Server error during update" });
+    } finally {
+      async () => {
+        await prisma.$disconnect();
+      };
+    }
+  },
+);
+
+router.post(
+  "/support/create",
+  supportUpload.single("proof"),
+  async (req, res) => {
+    try {
+      //  Extract text fields (req.body contains the text parts)
+      const { mobile, support_type, description } = req.body;
+
+      //  Construct the image URL (accessible via static serve)
+      // Ensure you configure express.static to serve the 'uploads' folder
+      const imageUrl = req.file
+        ? `${req.protocol}://${req.get("host")}/uploads/supports/${req.file.filename}`
+        : null;
+
+      const result = await prisma.support.create({
+        data: {
+          message: description,
+          queryType: support_type,
+          photo: imageUrl,
+          postedById: mobile,
+          mobile: mobile,
+        },
+      });
+
+      if (result) {
+        // Send Notification
+        await sendPushNotificationToTopic(
+          `user_${mobile}`,
+          "Query received",
+          "Thank you for contacting us, we will try to resolve your issue at utmost priority basis",
+        );
+      }
+      return res.status(200).json({ message: "success" });
+    } catch (error) {
+      console.error("Error creating job:", error.message);
+      res.status(500).json({ message: "Server error" });
     } finally {
       async () => {
         await prisma.$disconnect();
