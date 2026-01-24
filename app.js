@@ -1,40 +1,78 @@
 import express from "express";
+import http from "http"; // 1. Import HTTP module
+import { Server } from "socket.io"; // 2. Import Socket.io
 import dotenv from "dotenv";
 import cors from "cors";
 import path from "path";
 import { fileURLToPath } from "url";
 import { dirname } from "path";
+
+// Routes
 import authRoutes from "./routes/auth.js";
 import jobRoutes from "./routes/jobs.js";
 import userRoutes from "./routes/user.js";
 import tokenRoutes from "./routes/token.js";
+import adminRoutes from "./routes/admin.js";
 
+// Services
 import setupTTL from "./utils/ttl-service.js";
 import { connectRedis } from "./middleware/redis.js";
 
 dotenv.config();
 
-// 1. Recreate __dirname for ES Modules
+// Recreate __dirname for ES Modules
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 async function initializeExpressServer() {
   const app = express();
+
+  // 3. Create HTTP Server explicitly (Required for Socket.io)
+  const server = http.createServer(app);
+
+  // 4. Define Allowed Domains (Shared between Express and Socket.io)
+  const allowedDomains = [
+    "http://localhost:3000",
+    process.env.ADMIN_PANEL_URL, // Add your production admin URL in .env
+  ].filter(Boolean); // Removes undefined if env is missing
+
+  // 5. Initialize Socket.io
+  const io = new Server(server, {
+    cors: {
+      origin: allowedDomains, // Socket.io needs explicit origins
+      methods: ["GET", "POST"],
+      credentials: true,
+    },
+  });
+
+  // 6. Make 'io' accessible in routes via req.app.get('socketio')
+  app.set("socketio", io);
+
+  // Socket Connection Logic
+  io.on("connection", (socket) => {
+    console.log(`🔌 Admin Connected: ${socket.id}`);
+
+    socket.on("disconnect", () => {
+      console.log(`❌ Admin Disconnected: ${socket.id}`);
+    });
+  });
+
+  // --- Express Middleware ---
+
   app.use(express.json());
-  // app.use(express.static("uploads"));
 
   // Serve Static Files
-  // This makes http://localhost:8800/uploads/image.jpg accessible
   app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
-  // 1. Initialize the TTL Cron Job
+  // Initialize TTL Service
   setupTTL();
 
-  // Middleware for logging
+  // Logging Middleware
   app.use((req, res, next) => {
     console.log(`${req.method} : ${req.path}`);
     next();
   });
+
   app.use(
     express.urlencoded({
       parameterLimit: 100000,
@@ -43,33 +81,48 @@ async function initializeExpressServer() {
     }),
   );
 
-  let allowedDomains = ["http://localhost:3000"];
+  // Express CORS Setup (Using the shared allowedDomains)
   app.use(
     cors({
       origin: function (origin, callback) {
+        // Allow requests with no origin (like mobile apps or curl requests)
         if (!origin) return callback(null, true);
+
         if (allowedDomains.indexOf(origin) === -1) {
-          var msg = `This site ${origin} does not have an access. Only specific domains are allowed to access it.`;
+          const msg = `The CORS policy for this site does not allow access from the specified Origin: ${origin}`;
           return callback(new Error(msg), false);
         }
         return callback(null, true);
       },
+      credentials: true,
     }),
   );
 
-  // connect to Redis
+  // --- Database & Routes ---
+
+  // Connect to Redis BEFORE mounting routes
   await connectRedis();
+
   app.use("/api/auth", authRoutes);
   app.use("/api/jobs", jobRoutes);
   app.use("/api/user", userRoutes);
   app.use("/api/token", tokenRoutes);
+  app.use("/api/admin", adminRoutes);
+
+  // --- Server Start ---
 
   const PORT = process.env.PORT || 8800;
-  app.listen(PORT, () => {
-    console.log(`Server is running on http://localhost:${PORT}`);
+
+  // 7. LISTEN on 'server', NOT 'app'
+  server.listen(PORT, () => {
+    console.log(`🚀 Server running on http://localhost:${PORT}`);
+    console.log(`📡 Socket.io initialized for Admin Panel`);
   });
 }
 
 initializeExpressServer()
   .then()
-  .catch((e) => console.error(e));
+  .catch((e) => {
+    console.error("❌ Failed to start server:", e);
+    process.exit(1);
+  });

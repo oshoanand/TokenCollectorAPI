@@ -196,10 +196,16 @@ model Order {
   orderDispatchDate DateTime?
 }
 
-model Delivery {
-  id            Int      @id @default(autoincrement())
-  fullName      String
-  passport      String
-  deliveryPhoto String[]
-  createdAt     DateTime @default(now())
+model Subscription {
+  id       String @id @default(uuid())
+  endpoint String @unique // The unique URL for the user's browser
+  p256dh   String // Public key for encryption
+  auth     String // Auth secret
+
+  // Optional: Link to a User/Admin if you have authentication
+  // userId    String? 
+  // user      User?   @relation(fields: [userId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
