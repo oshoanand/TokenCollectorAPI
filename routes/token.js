@@ -1,5 +1,5 @@
 import express from "express";
-import { messaging } from "../lib/firebase.js";
+import { sendPushNotification } from "../lib/firebase.js";
 import {
   fetchCached,
   prisma,
@@ -9,87 +9,6 @@ import {
 import webpush from "../utils/web-push.js";
 
 const router = express.Router();
-
-const sendPushNotification = async (token, title, body) => {
-  if (!token) return;
-  try {
-    return await messaging.send({
-      notification: { title, body },
-      token: token,
-    });
-  } catch (err) {
-    console.error("FCM Error:", err.message);
-  }
-};
-
-const sendPushNotificationToTopic = async (topic, title, body) => {
-  if (!topic) return;
-  try {
-    return await messaging.send({
-      notification: { title, body },
-      topic: topic,
-    });
-  } catch (err) {
-    console.error("FCM Error:", err.message);
-  }
-};
-
-// router.post("/create", async (req, res) => {
-//   const { mobileNumber, orderNumber, orderCode, fcmToken } = req.body;
-//   try {
-//     const data = await prisma.token.findFirst({
-//       select: {
-//         tokenCode: true,
-//         tokenStatus: true,
-//       },
-//       where: {
-//         mobileNumber: mobileNumber,
-//       },
-//     });
-
-//     if (data != null && data.tokenStatus == "REQUESTED") {
-//       return res.status(403).json({
-//         orderToken: data.tokenCode,
-//         message: "У вас уже есть активный токен!",
-//       });
-//     } else {
-//       const tokenCode = await generateUniqueCode();
-//       const result = await prisma.token.create({
-//         data: {
-//           orderNumber: orderNumber,
-//           mobileNumber: mobileNumber,
-//           orderCode: orderCode,
-//           tokenCode: tokenCode,
-//           quantity: 1,
-//         },
-//       });
-
-//       if (result) {
-//         await invalidateKeys([
-//           "tokens:all",
-//           `tokens:${mobileNumber}`,
-//           `token:${mobileNumber}`,
-//         ]);
-//         sendPushNotification(
-//           fcmToken,
-//           `Your TOKEN NUMBER : ${tokenCode}`,
-//           " The Token Number is valid for 48 hours only",
-//         );
-//         return res.status(200).json({
-//           token: result.tokenCode,
-//           message: "success",
-//         });
-//       }
-//     }
-//   } catch (error) {
-//     console.log(error.message);
-//     return res.status(400).json({ message: "Something went wrong !" });
-//   } finally {
-//     async () => {
-//       await prisma.$disconnect();
-//     };
-//   }
-// });
 
 router.post("/create", async (req, res) => {
   const { mobileNumber, orderNumber, orderCode, fcmToken } = req.body;
@@ -115,7 +34,6 @@ router.post("/create", async (req, res) => {
         message: "У вас уже есть активный токен!",
       });
     }
-
     // Proceed to create new token
     else {
       const tokenCode = await generateUniqueCode();
@@ -159,7 +77,6 @@ router.post("/create", async (req, res) => {
         try {
           // A. Fetch all subscribed admins from Postgres
           const subscriptions = await prisma.subscription.findMany();
-
           // B. Prepare the payload (Must match what sw.js expects)
           const notificationPayload = JSON.stringify({
             title: "New Token Generated!",
@@ -200,12 +117,15 @@ router.post("/create", async (req, res) => {
           console.error("Background Notification Failed:", pushError);
         }
 
-        // Send FCM Notification (Async - do not await if you want faster response)
-        sendPushNotification(
-          fcmToken,
-          `Your TOKEN NUMBER : ${tokenCode}`,
-          "The Token Number is valid for 48 hours only",
-        );
+        if (fcmToken) {
+          sendPushNotification(
+            "token",
+            `Сгенерированный номер токена ${tokenCode} 📦✨`,
+            "Токен действителен только в течение 48 часов⌚",
+            fcmToken,
+            null,
+          );
+        }
 
         return res.status(200).json({
           token: result.tokenCode,
@@ -262,6 +182,13 @@ router.get("/all", async (req, res) => {
     const results = await fetchCached("tokens", "all", async () => {
       return await prisma.token.findMany({
         orderBy: { createdAt: "desc" },
+        include: {
+          postedBy: {
+            select: {
+              name: true,
+            },
+          },
+        },
       });
     });
 
@@ -282,8 +209,6 @@ router.get("/all", async (req, res) => {
 
 router.get("/all/:status", async (req, res) => {
   const status = req.params.status;
-  console.log(status);
-  console.log(status.toUpperCase());
 
   try {
     const results = await prisma.token.findMany({
@@ -331,10 +256,12 @@ router.patch("/status/:quantity/:token", async (req, res) => {
         `token:${result.mobileNumber}`,
       ]);
 
-      sendPushNotificationToTopic(
+      sendPushNotification(
+        "topic",
+        `Ваш токен-номер ${token} выдан 👍`,
+        "Благодарим вас за оформление заказов в наших пунктах выдачи. Надеемся, вам всё понравилось, и будем рады видеть вас снова. Всего доброго! 🎉",
+        null,
         `user_${result.mobileNumber}`,
-        `Token Number ${token} Issued`,
-        "Thank you for placing orders through our pickup point",
       );
     }
     return res.status(200).json({

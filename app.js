@@ -14,6 +14,7 @@ import userRoutes from "./routes/user.js";
 import tokenRoutes from "./routes/token.js";
 import adminRoutes from "./routes/admin.js";
 import notificationRoutes from "./routes/notification.js";
+import supportRoutes from "./routes/support.js";
 
 // Services
 import setupTTL from "./utils/ttl-service.js";
@@ -110,6 +111,7 @@ async function initializeExpressServer() {
   app.use("/api/token", tokenRoutes);
   app.use("/api/admin", adminRoutes);
   app.use("/api/notifications", notificationRoutes);
+  app.use("/api/support", supportRoutes);
 
   // --- Server Start ---
 

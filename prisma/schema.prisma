@@ -8,6 +8,23 @@ datasource db {
   provider = "postgresql"
 }
 
+enum SupportStatus {
+  PENDING
+  IN_PROGRESS
+  RESOLVED
+  REJECTED
+}
+
+enum TargetType {
+  topic
+  token
+}
+
+enum Status {
+  SENT
+  FAILED
+}
+
 model Account {
   id                String  @id @default(cuid())
   userId            String
@@ -49,46 +66,6 @@ model VerificationToken {
   @@unique([identifier, token])
 }
 
-model Product {
-  id          Int      @id @default(autoincrement())
-  name        String   @unique
-  slug        String
-  description String?
-  category    String?
-  image       String?
-  inStock     Int?     @default(0)
-  salePrice   Int?     @default(0)
-  price       Int?     @default(0)
-  discount    Int?     @default(0)
-  status      String   @default("Active")
-  coinValue   Int
-  createdAt   DateTime @default(now())
-}
-
-model Redeem {
-  id           Int       @id @default(autoincrement())
-  name         String
-  mobile       String
-  email        String
-  product      String
-  productValue String
-  redeemCode   String    @unique
-  redeemStatus String    @default("Created")
-  createdAt    DateTime  @default(now())
-  receivedAt   DateTime?
-}
-
-model Coin {
-  id          Int      @id @default(autoincrement())
-  name        String
-  mobile      String
-  email       String?
-  orderNumber String?
-  earnedCoin  Int      @default(0)
-  spentCoin   Int      @default(0)
-  createdAt   DateTime @default(now())
-}
-
 model User {
   id                 String              @id @default(cuid())
   name               String
@@ -108,19 +85,23 @@ model User {
   sessions           Session[]
   verificationTokens VerificationToken[]
   supports           Support[]
+  tokens             Token[]
   jobPostedBy        Job[]               @relation("JobPostedBy")
   jobFinishedBy      Job[]               @relation("JobFinishedBy")
 }
 
 model Support {
-  id         Int      @id @default(autoincrement())
+  id         String        @id @default(uuid())
   mobile     String
   queryType  String
   message    String
-  photo      String?
-  status     String   @default("Created")
-  createdAt  DateTime @default(now())
-  postedBy   User     @relation(fields: [postedById], references: [mobile])
+  photo      String? // The proof image URL
+  status     SupportStatus @default(PENDING)
+  adminReply String?
+  resolvedAt DateTime?
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+  postedBy   User          @relation(fields: [postedById], references: [mobile])
   postedById String
 }
 
@@ -152,6 +133,8 @@ model Token {
   tokenStatus  String    @default("REQUESTED")
   createdAt    DateTime  @default(now())
   receivedAt   DateTime?
+  postedBy     User?     @relation(fields: [postedById], references: [mobile])
+  postedById   String?
 
   @@index([createdAt])
 }
@@ -205,14 +188,4 @@ model NotificationLog {
   errorDetails String?
 
   @@index([sentAt]) // Optimize sorting by date
-}
-
-enum TargetType {
-  topic
-  token
-}
-
-enum Status {
-  SENT
-  FAILED
 }

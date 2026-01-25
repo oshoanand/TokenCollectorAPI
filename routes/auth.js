@@ -1,6 +1,6 @@
 import express from "express";
 import prisma from "../utils/prisma.js";
-import { messaging } from "../lib/firebase.js";
+import { sendPushNotification } from "../lib/firebase.js";
 import jwt from "jsonwebtoken";
 import { hash, genSalt, compare } from "bcrypt";
 
@@ -9,8 +9,6 @@ import {
   loginValidationRules,
   registerValidationRules,
 } from "../utils/auth-validator.js";
-import { readFile } from "node:fs/promises";
-import path from "path";
 
 import "dotenv/config";
 
@@ -60,25 +58,25 @@ router.post(
             fcmToken: fcmToken,
             image:
               "https://res.cloudinary.com/dlywo5mxn/image/upload/v1689572976/afed80130a2682f1a428984ed8c84308_wscf7t.jpg",
-            userRole: role,
+            userRole: role ? role : "USER",
             userStatus: "Active",
           },
         });
 
         const token = generateToken(result.id, name, email);
 
-        if (fcmToken != "") {
-          const message = {
-            notification: {
-              title: `Добро пожаловать ${name}`,
-              body: `Спасибо, что присоединились к приложению Яша !`,
-            },
-            token: fcmToken,
-          };
-          await messaging.send(message);
+        // 2. Send Notification (Fire & Forget)
+        // We do NOT use 'await' here. If this fails, it logs to console
+        // via the catch block inside lib/firebase.js, but does not stop this request.
+        if (fcmToken) {
+          sendPushNotification(
+            "token",
+            `${result.name} ! Добро пожаловать в Зепо 👍`,
+            "Спасибо за регистрацию 🎉",
+            fcmToken,
+            null,
+          );
         }
-
-        // console.log(result);
 
         return res.status(200).json({
           user: {
@@ -158,28 +156,38 @@ router.post("/login", loginValidationRules, validate, async (req, res) => {
   }
 });
 
-router.post("/password/update", async (req, res) => {
-  const { mobile, password } = req.body;
+router.post("/password/reset", async (req, res) => {
+  const { mobile, password, fcmToken } = req.body;
 
   try {
     const user = await prisma.user.findUnique({
-      where: {
-        mobile: mobile,
-      },
+      where: { mobile: mobile },
     });
 
     if (user) {
       const salt = await genSalt(10);
       const hashedPassword = await hash(password, salt);
 
+      // 1. Update Database (Critical Step)
       await prisma.user.update({
-        where: {
-          mobile: mobile,
-        },
-        data: {
-          password: hashedPassword,
-        },
+        where: { mobile: mobile },
+        data: { password: hashedPassword },
       });
+
+      // 2. Send Notification (Fire & Forget)
+      // We do NOT use 'await' here. If this fails, it logs to console
+      // via the catch block inside lib/firebase.js, but does not stop this request.
+      if (fcmToken) {
+        sendPushNotification(
+          "token",
+          "🔐ваш пароль успешно изменен",
+          "попробуйте войти в систему, используя свой новый пароль! ✅",
+          fcmToken,
+          null,
+        );
+      }
+
+      // 3. Send Success Response Immediately
       return res.status(200).json({
         message: "Пароль успешно обновлен !",
       });
@@ -189,39 +197,9 @@ router.post("/password/update", async (req, res) => {
       });
     }
   } catch (error) {
-    console.log(error.message);
+    console.log("Database/Server Error:", error.message);
+    // This only runs if Prisma/Database fails, which is what you want.
     return res.status(400).json({ message: "Something went wrong !" });
-  } finally {
-    async () => {
-      await prisma.$disconnect();
-    };
-  }
-});
-
-router.get("/all-users", async (req, res) => {
-  let page = req.query.page || 1;
-  let limit = req.query.limit || 50;
-
-  try {
-    const result = await prisma.user.findMany({
-      skip: page == 1 ? 0 : Number(page) * 50,
-      take: Number(limit),
-      orderBy: {
-        createdAt: "desc",
-      },
-    });
-
-    return res.status(200).json({
-      totalCount: result.length,
-      users: result,
-    });
-  } catch (error) {
-    console.log(error);
-    return res.status(400).json({ error: error.message });
-  } finally {
-    async () => {
-      await prisma.$disconnect();
-    };
   }
 });
 

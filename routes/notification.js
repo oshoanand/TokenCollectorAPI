@@ -1,6 +1,6 @@
 import express from "express";
-import { messaging } from "../lib/firebase.js";
-import prisma from "../utils/prisma.js";
+import { messaging, sendPushNotification } from "../lib/firebase.js";
+import prisma from "../utils/prisma.js"; //
 
 const router = express.Router();
 
@@ -20,82 +20,62 @@ router.get("/history", async (req, res) => {
   }
 });
 
+// POST Send
 router.post("/send", async (req, res) => {
+  console.log(req.body);
   const { type, target, title, body } = req.body;
 
-  // 1. Basic Validation
+  // Validation
   if (!type || !target || !title || !body) {
-    return res.status(400).json({
-      error:
-        "Missing required fields: type, target, title, and body are required.",
-    });
+    return res.status(400).json({ error: "Missing required fields" });
   }
 
   try {
-    let message = {
-      notification: {
-        title: title,
-        body: body,
-      },
-      // Optional: Add data payload for background handling or custom logic in the app
+    // 1. Send via Firebase
+    const response = await sendPushNotification(
+      type,
+      title,
+      body,
+      target,
+      target,
+    );
+
+    // 2. ✅ Log Success to PostgreSQL via Prisma
+    await prisma.notificationLog.create({
       data: {
-        click_action: "FLUTTER_NOTIFICATION_CLICK", // Or your Android/iOS specific action
-        sentAt: new Date().toISOString(),
+        title,
+        body,
+        targetType: type, // Prisma matches the string 'topic'/'token' to the Enum automatically
+        target,
+        status: "SENT",
+        messageId: response,
       },
-      // Platform specific configurations
-      android: {
-        priority: "high",
-        notification: {
-          icon: "stock_ticker_update",
-          color: "#4D96FF", // Matches your Tech Blue theme
-          sound: "default",
-        },
-      },
-      apns: {
-        payload: {
-          aps: {
-            badge: 1,
-            sound: "default",
-          },
-        },
-      },
-    };
-
-    // 2. Set Destination based on Type
-    if (type === "topic") {
-      // Broadcasting to a Firebase Topic (e.g., "all_users")
-      message.topic = target;
-    } else if (type === "token") {
-      // Sending to a specific device's FCM Token
-      message.token = target;
-    } else {
-      return res
-        .status(400)
-        .json({ error: "Invalid type. Must be 'topic' or 'token'." });
-    }
-
-    // 3. Send via Firebase Admin SDK
-    const response = await messaging.send(message);
-
-    console.log(`Successfully sent message: ${response}`);
-    return res.status(200).json({
-      success: true,
-      messageId: response,
     });
+
+    return res.status(200).json({ success: true, messageId: response });
   } catch (error) {
-    console.error("Error sending FCM message:", error);
+    console.error("FCM Error:", error);
 
-    // Handle specific Firebase errors (e.g., expired tokens)
-    if (error.code === "messaging/registration-token-not-registered") {
-      return res.status(410).json({
-        error: "Token is no longer valid. Remove it from your database.",
+    // 3. ✅ Log Failure to PostgreSQL
+    // We wrap this in a try/catch so logging failure doesn't crash the response
+    try {
+      await prisma.notificationLog.create({
+        data: {
+          title,
+          body,
+          targetType: type,
+          target,
+          status: "FAILED",
+          errorDetails: error.message,
+        },
       });
+    } catch (logError) {
+      console.error("Failed to write error log to DB:", logError);
     }
 
-    return res.status(500).json({
-      error: "Failed to send notification",
-      details: error.message,
-    });
+    return res
+      .status(500)
+      .json({ error: "Failed to send notification", details: error.message });
   }
 });
 
