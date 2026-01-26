@@ -163,15 +163,15 @@ router.get("/list/:mobile", async (req, res) => {
         },
       });
     });
-    console.log(results);
+
     if (results && results.length > 0) {
       return res.status(200).json(results);
     } else {
-      throw new Error("У вас нет активных токенов!");
+      return res.status(200).json([]);
     }
   } catch (error) {
     console.error("Error fetching tokens:", error.message);
-    return res.status(500).json({ message: error.message });
+    return res.status(500).json({ message: "server error !" });
   } finally {
     async () => {
       await prisma.$disconnect();

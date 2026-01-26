@@ -34,7 +34,7 @@ router.post("/create", supportUpload.single("proof"), async (req, res) => {
         "Query received",
         "Thank you for contacting us, we will try to resolve your issue at utmost priority basis",
         null,
-        `user_${result.mobile}``user_${mobile}`,
+        `user_${result.mobile}`,
       );
     }
     return res.status(200).json({ message: "success" });
