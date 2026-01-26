@@ -7,6 +7,7 @@ import {
   invalidateKeys,
 } from "../middleware/redis.js";
 import webpush from "../utils/web-push.js";
+import "dotenv/config";
 
 const router = express.Router();
 
@@ -45,6 +46,7 @@ router.post("/create", async (req, res) => {
           tokenCode: tokenCode,
           quantity: 1,
           tokenStatus: "REQUESTED", // Ensure status is set explicitly
+          postedById: mobileNumber,
         },
       });
 
@@ -80,8 +82,8 @@ router.post("/create", async (req, res) => {
           // B. Prepare the payload (Must match what sw.js expects)
           const notificationPayload = JSON.stringify({
             title: "New Token Generated!",
-            body: `Code: ${tokenCode} | Order: ${orderNumber}`,
-            url: "http://localhost:3000/orders", // Deep link
+            body: `Token: ${tokenCode} | Order: ${orderNumber}`,
+            url: `${ADMIN_PANEL_URL}/tokens`, // Deep link
           });
 
           // C. Send to all subscriptions in parallel
@@ -120,7 +122,7 @@ router.post("/create", async (req, res) => {
         if (fcmToken) {
           sendPushNotification(
             "token",
-            `Сгенерированный номер токена ${tokenCode} 📦✨`,
+            `Сгенерированный номер токена ${tokenCode} 📦`,
             "Токен действителен только в течение 48 часов⌚",
             fcmToken,
             null,
@@ -191,7 +193,7 @@ router.get("/all", async (req, res) => {
         },
       });
     });
-
+    // console.log(results);
     if (results && results.length > 0) {
       return res.status(200).json(results);
     } else {

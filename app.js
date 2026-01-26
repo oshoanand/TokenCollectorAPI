@@ -35,6 +35,7 @@ async function initializeExpressServer() {
   // 4. Define Allowed Domains (Shared between Express and Socket.io)
   const allowedDomains = [
     "http://localhost:3000",
+
     process.env.ADMIN_PANEL_URL, // Add your production admin URL in .env
   ].filter(Boolean); // Removes undefined if env is missing
 
