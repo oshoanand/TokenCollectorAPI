@@ -21,15 +21,15 @@ router.post("/create", async (req, res) => {
     const data = await prisma.token.findFirst({
       select: {
         tokenCode: true,
-        tokenStatus: true,
       },
       where: {
         mobileNumber: mobileNumber,
+        tokenStatus: "REQUESTED",
       },
     });
 
     // Check if user already has an active token
-    if (data != null && data.tokenStatus == "REQUESTED") {
+    if (data != null) {
       return res.status(403).json({
         orderToken: data.tokenCode,
         message: "У вас уже есть активный токен!",
@@ -45,7 +45,7 @@ router.post("/create", async (req, res) => {
           orderCode: orderCode,
           tokenCode: tokenCode,
           quantity: 1,
-          tokenStatus: "REQUESTED", // Ensure status is set explicitly
+          tokenStatus: "REQUESTED",
           postedById: mobileNumber,
         },
       });
