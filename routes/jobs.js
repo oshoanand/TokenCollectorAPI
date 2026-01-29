@@ -1,55 +1,22 @@
 import express from "express";
-import { messaging } from "../lib/firebase.js";
+import { sendPushNotification } from "../lib/firebase.js";
 import "dotenv/config";
 import fs from "fs";
 import path from "path";
 import { fetchCached, prisma, invalidateKeys } from "../middleware/redis.js";
-import multer from "multer";
+import { createUploader } from "../utils/multer.js";
+import { sendMessageToBot } from "../utils/telegram.js";
 
 const router = express.Router();
 
-// Multer Configuration ---
-// Define where to save the uploaded files
-const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    // Ensure this directory exists or create it
-    const uploadDir = "uploads/jobs/";
-    if (!fs.existsSync(uploadDir)) {
-      fs.mkdirSync(uploadDir);
-    }
-    cb(null, uploadDir);
-  },
-  filename: function (req, file, cb) {
-    // Create a unique filename: fieldname-timestamp.jpg
-    const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
-    cb(
-      null,
-      file.fieldname + "-" + uniqueSuffix + path.extname(file.originalname),
-    );
-  },
-});
-
-// Initialize multer
-const upload = multer({ storage: storage });
-
-const sendPushNotificationToTopic = async (topic, title, body, data) => {
-  const message = {
-    notification: {
-      title: title,
-      body: body,
-    },
-    data: data,
-    topic: topic,
-  };
-
-  return await messaging.send(message);
-};
+const jobUpload = createUploader("jobs");
+const jobProofUpload = createUploader("proof");
 
 // ==========================================
 // 1. CREATE JOB
 // ==========================================
 
-router.post("/create", upload.single("image"), async (req, res) => {
+router.post("/create", jobUpload.single("image"), async (req, res) => {
   try {
     // 1. Check if file exists
     if (!req.file) {
@@ -77,20 +44,27 @@ router.post("/create", upload.single("image"), async (req, res) => {
 
     if (result) {
       // --- CACHE INVALIDATION ---
-      // 1. Clear the main 'open' list so collectors see the new job immediately
+      // 1. Clear the main 'active' list so collectors see the new job immediately
       // 2. Clear the 'posted' list for this specific user so their "My Jobs" updates
-      await invalidateKeys([`jobs:open`, `jobs:posted:${mobile}`]);
 
-      // Send Notification
-      await sendPushNotificationToTopic(
+      // Invalidate Cache
+      await invalidateKeys(["jobs:active", `jobs:postedBy:${mobile}`]);
+
+      //Send FCM Push Notification to all the collectors
+      sendPushNotification(
+        "topic",
+        `Новая работа ! 🚛`,
+        `\uD83D\uDCCC Расположение : ${address} ${cost}₽ ${description.substring(0, 30)}`,
+        null,
         process.env.COLLECTOR_FCM_TOPIC,
-        "New Job Available! 🚛",
-        `${cost} ₽ - \uD83D\uDCCC Location : ${address} - ${description.substring(0, 30)}`,
-        {
-          type: "NEW_JOB",
-          jobId: String(result.id),
-          click_action: "FLUTTER_NOTIFICATION_CLICK",
-        },
+      );
+      // Send message to Telegram Bot
+      sendMessageToBot(
+        "created",
+        "Опубликовано новое задание",
+        description,
+        address,
+        cost,
       );
     }
     return res.status(200).json({ message: "Job created successfully" });
@@ -114,7 +88,7 @@ router.get("/open", async (req, res) => {
     // Key: "jobs:open"
     // Query: The expensive Prisma findMany
 
-    const jobs = await fetchCached("jobs", "open", async () => {
+    const jobs = await fetchCached("jobs", "active", async () => {
       return await prisma.job.findMany({
         where: { status: "ACTIVE" },
         orderBy: { createdAt: "desc" },
@@ -154,7 +128,7 @@ router.get("/list", async (req, res) => {
 
     // Key: "jobs:posted:+1234567890"
     // We use a prefix 'posted' to distinguish from other lists
-    const cacheKeyId = `posted:${userMobile}`;
+    const cacheKeyId = `postedBy:${userMobile}`;
 
     const jobs = await fetchCached("jobs", cacheKeyId, async () => {
       return await prisma.job.findMany({
@@ -195,7 +169,7 @@ router.get("/collector-list", async (req, res) => {
       return res.status(400).json({ message: "Mobile number required" });
 
     // Key: "jobs:collected:+1234567890"
-    const cacheKeyId = `collected:${userMobile}`;
+    const cacheKeyId = `collectedBy:${userMobile}`;
 
     const jobs = await fetchCached("jobs", cacheKeyId, async () => {
       return await prisma.job.findMany({
@@ -250,8 +224,8 @@ router.delete("/:id", async (req, res) => {
       }
 
       // --- CACHE INVALIDATION ---
-      // Removing an active job affects the 'open' list and the 'posted' list of that user
-      await invalidateKeys([`jobs:open`, `jobs:posted:${job.postedById}`]);
+      // Removing an active job affects the 'active' list and the 'posted' list of that user
+      await invalidateKeys([`jobs:active`, `jobs:postedBy:${job.postedById}`]);
 
       return res.status(200).json({ message: "Job deleted successfully" });
     } else {
@@ -268,7 +242,7 @@ router.delete("/:id", async (req, res) => {
 // ==========================================
 // 6. COMPLETE JOB
 // ==========================================
-router.post("/complete", upload.single("proof"), async (req, res) => {
+router.post("/complete", jobProofUpload.single("proof"), async (req, res) => {
   try {
     if (!req.file)
       return res.status(400).json({ message: "Proof image is required." });
@@ -277,7 +251,7 @@ router.post("/complete", upload.single("proof"), async (req, res) => {
     if (!job_id)
       return res.status(400).json({ message: "Job ID is required." });
 
-    const proofUrl = `${req.protocol}://${req.get("host")}/uploads/jobs/${req.file.filename}`;
+    const proofUrl = `${req.protocol}://${req.get("host")}/uploads/proof/${req.file.filename}`;
 
     // Update DB
     const updatedJob = await prisma.job.update({
@@ -298,28 +272,33 @@ router.post("/complete", upload.single("proof"), async (req, res) => {
     // 2. Job status changed for the Poster -> Clear jobs:posted:<poster_mobile>
     // 3. Job added to Collector's history -> Clear jobs:collected:<collector_mobile>
     await invalidateKeys([
-      `jobs:open`,
-      `jobs:posted:${updatedJob.postedBy.mobile}`,
-      `jobs:collected:${mobile}`,
+      `jobs:active`,
+      `jobs:postedBy:${updatedJob.postedBy.mobile}`,
+      `jobs:collectedBy:${mobile}`,
     ]);
 
     // Send Notification
     if (updatedJob.postedBy?.mobile) {
       const posterTopic = `user_${updatedJob.postedBy.mobile}`;
       try {
-        await sendPushNotificationToTopic(
+        sendPushNotification(
+          "topic",
+          `Работа выполнена! ${updatedJob.location} ✅`,
+          `Пожалуйста, проверьте подтверждение и произведите оплату в размере ${updatedJob.cost} рублей`,
+          null,
           posterTopic,
-          "Job Completed! ✅",
-          `Job #${job_id} is done. Please check the proof and release payment`,
-          {
-            jobId: String(job_id),
-            type: "PAYMENT_REQUIRED",
-            click_action: "FLUTTER_NOTIFICATION_CLICK",
-          },
         );
       } catch (err) {
         console.error("FCM Error", err);
       }
+
+      sendMessageToBot(
+        "",
+        "Задача выполнена. Ожидание оплаты",
+        updatedJob.description,
+        updatedJob.location,
+        updatedJob.cost,
+      );
     }
 
     return res.status(200).json({
