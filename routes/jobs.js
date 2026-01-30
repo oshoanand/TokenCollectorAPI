@@ -31,6 +31,7 @@ router.post("/create", jobUpload.single("image"), async (req, res) => {
     const imageUrl = `${req.protocol}://${req.get("host")}/uploads/jobs/${
       req.file.filename
     }`;
+    console.log(imageUrl);
 
     const result = await prisma.job.create({
       data: {
