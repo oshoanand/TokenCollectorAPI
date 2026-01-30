@@ -30,15 +30,13 @@ router.post("/create", jobUpload.single("image"), async (req, res) => {
     // 3. Construct the image URL (accessible via static serve)
     // Ensure you configure express.static to serve the 'uploads' folder
     const imageUrl = `https://api.klinciti.ru/uploads/jobs/${req.file.filename}`;
-    console.log(imageUrl);
 
     const result = await prisma.job.create({
       data: {
         description: description,
         location: address,
         cost: cost,
-        jobPhoto:
-          "https://res.cloudinary.com/dlywo5mxn/image/upload/v1689572976/afed80130a2682f1a428984ed8c84308_wscf7t.jpg",
+        jobPhoto: imageUrl,
         postedById: mobile,
       },
     });
@@ -73,7 +71,6 @@ router.post("/create", jobUpload.single("image"), async (req, res) => {
     }
     return res.status(200).json({ message: "Job created successfully" });
   } catch (error) {
-    console.log(error.message);
     console.error("Error creating job:", error.message);
     res.status(500).json({ message: "Server error" });
   }
