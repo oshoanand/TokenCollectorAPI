@@ -37,7 +37,8 @@ router.post("/create", jobUpload.single("image"), async (req, res) => {
         description: description,
         location: address,
         cost: cost,
-        jobPhoto: imageUrl,
+        jobPhoto:
+          "https://res.cloudinary.com/dlywo5mxn/image/upload/v1689572976/afed80130a2682f1a428984ed8c84308_wscf7t.jpg",
         postedById: mobile,
       },
     });
