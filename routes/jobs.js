@@ -29,9 +29,7 @@ router.post("/create", jobUpload.single("image"), async (req, res) => {
 
     // 3. Construct the image URL (accessible via static serve)
     // Ensure you configure express.static to serve the 'uploads' folder
-    const imageUrl = `${req.protocol}://${req.get("host")}/uploads/jobs/${
-      req.file.filename
-    }`;
+    const imageUrl = `https://api.klinciti.ru/uploads/jobs/${req.file.filename}`;
     console.log(imageUrl);
 
     const result = await prisma.job.create({
