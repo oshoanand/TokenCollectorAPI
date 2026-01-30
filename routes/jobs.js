@@ -25,6 +25,7 @@ router.post("/create", jobUpload.single("image"), async (req, res) => {
 
     // 2. Extract text fields (req.body contains the text parts)
     const { description, address, cost, mobile } = req.body;
+    console.log(req.body);
 
     // 3. Construct the image URL (accessible via static serve)
     // Ensure you configure express.static to serve the 'uploads' folder
