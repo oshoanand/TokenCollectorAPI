@@ -42,6 +42,7 @@ router.post("/create", jobUpload.single("image"), async (req, res) => {
         postedById: mobile,
       },
     });
+    console.log(result);
 
     if (result) {
       // --- CACHE INVALIDATION ---
@@ -50,6 +51,7 @@ router.post("/create", jobUpload.single("image"), async (req, res) => {
 
       // Invalidate Cache
       await invalidateKeys(["jobs:active", `jobs:postedBy:${mobile}`]);
+      console.log(`after redis keys valided`);
 
       //Send FCM Push Notification to all the collectors
       sendPushNotification(
@@ -59,6 +61,7 @@ router.post("/create", jobUpload.single("image"), async (req, res) => {
         null,
         process.env.COLLECTOR_FCM_TOPIC,
       );
+      console.log(`after push notification`);
       // Send message to Telegram Bot
       sendMessageToBot(
         "created",
@@ -70,6 +73,7 @@ router.post("/create", jobUpload.single("image"), async (req, res) => {
     }
     return res.status(200).json({ message: "Job created successfully" });
   } catch (error) {
+    console.log(error.message);
     console.error("Error creating job:", error.message);
     res.status(500).json({ message: "Server error" });
   }
