@@ -17,7 +17,7 @@ import notificationRoutes from "./routes/notification.js";
 import supportRoutes from "./routes/support.js";
 
 // Services
-import setupTTL from "./utils/ttl-service.js";
+//import setupTTL from "./utils/ttl-service.js";
 import { connectRedis } from "./middleware/redis.js";
 
 dotenv.config();
@@ -68,7 +68,7 @@ async function initializeExpressServer() {
   app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
   // Initialize TTL Service
-  setupTTL();
+  // setupTTL();
 
   // Logging Middleware
   app.use((req, res, next) => {

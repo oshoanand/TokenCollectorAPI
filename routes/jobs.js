@@ -71,10 +71,6 @@ router.post("/create", jobUpload.single("image"), async (req, res) => {
   } catch (error) {
     console.error("Error creating job:", error.message);
     res.status(500).json({ message: "Server error" });
-  } finally {
-    async () => {
-      await prisma.$disconnect();
-    };
   }
 });
 
@@ -109,10 +105,6 @@ router.get("/open", async (req, res) => {
   } catch (error) {
     console.error("Error fetching open jobs:", error.message);
     res.status(500).json({ message: error.message });
-  } finally {
-    async () => {
-      await prisma.$disconnect();
-    };
   }
 });
 
@@ -151,10 +143,6 @@ router.get("/list", async (req, res) => {
   } catch (error) {
     console.error("Error fetching jobs:", error.message);
     return res.status(500).json({ message: "Server error" });
-  } finally {
-    async () => {
-      await prisma.$disconnect();
-    };
   }
 });
 
@@ -192,10 +180,6 @@ router.get("/collector-list", async (req, res) => {
   } catch (error) {
     console.error("Error fetching jobs:", error.message);
     return res.status(500).json({ message: "Server error" });
-  } finally {
-    async () => {
-      await prisma.$disconnect();
-    };
   }
 });
 // ==========================================

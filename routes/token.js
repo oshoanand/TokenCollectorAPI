@@ -172,10 +172,6 @@ router.get("/list/:mobile", async (req, res) => {
   } catch (error) {
     console.error("Error fetching tokens:", error.message);
     return res.status(500).json({ message: "server error !" });
-  } finally {
-    async () => {
-      await prisma.$disconnect();
-    };
   }
 });
 
@@ -202,10 +198,6 @@ router.get("/all", async (req, res) => {
   } catch (error) {
     console.error("Error fetching tokens:", error.message);
     return res.status(500).json({ message: error.message });
-  } finally {
-    async () => {
-      await prisma.$disconnect();
-    };
   }
 });
 
@@ -227,10 +219,6 @@ router.get("/all/:status", async (req, res) => {
   } catch (error) {
     console.log(error.message);
     return res.status(400).json({ message: error.message });
-  } finally {
-    async () => {
-      await prisma.$disconnect();
-    };
   }
 });
 
@@ -272,10 +260,6 @@ router.patch("/status/:quantity/:token", async (req, res) => {
   } catch (error) {
     console.log(error.message);
     return res.status(400).json({ message: error.message });
-  } finally {
-    async () => {
-      await prisma.$disconnect();
-    };
   }
 });
 
@@ -302,10 +286,6 @@ router.get("/:mobileId", async (req, res) => {
   } catch (error) {
     console.log(error.message);
     return res.status(400).json({ message: error.message });
-  } finally {
-    async () => {
-      await prisma.$disconnect();
-    };
   }
 });
 

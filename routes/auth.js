@@ -3,7 +3,6 @@ import prisma from "../utils/prisma.js";
 import { sendPushNotification } from "../lib/firebase.js";
 import jwt from "jsonwebtoken";
 import { hash, genSalt, compare } from "bcrypt";
-
 import {
   validate,
   loginValidationRules,
@@ -93,10 +92,6 @@ router.post(
     } catch (error) {
       console.log(error.message);
       return res.status(400).json({ message: "Something went wrong !" });
-    } finally {
-      async () => {
-        await prisma.$disconnect();
-      };
     }
   },
 );
@@ -149,10 +144,6 @@ router.post("/login", loginValidationRules, validate, async (req, res) => {
   } catch (error) {
     console.log(error.message);
     return res.status(400).json({ message: "Something went wrong !" });
-  } finally {
-    async () => {
-      await prisma.$disconnect();
-    };
   }
 });
 

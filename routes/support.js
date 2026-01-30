@@ -41,10 +41,6 @@ router.post("/create", supportUpload.single("proof"), async (req, res) => {
   } catch (error) {
     console.error("Error creating job:", error.message);
     res.status(500).json({ message: "Server error" });
-  } finally {
-    async () => {
-      await prisma.$disconnect();
-    };
   }
 });
 

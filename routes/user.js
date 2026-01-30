@@ -37,10 +37,6 @@ router.put(
     } catch (error) {
       console.error("Update error:", error.message);
       res.status(500).json({ message: "Server error during update" });
-    } finally {
-      async () => {
-        await prisma.$disconnect();
-      };
     }
   },
 );
@@ -78,10 +74,6 @@ router.put(
     } catch (error) {
       console.error("Update error:", error.message);
       res.status(500).json({ message: "Server error during update" });
-    } finally {
-      async () => {
-        await prisma.$disconnect();
-      };
     }
   },
 );
@@ -106,10 +98,6 @@ router.get("/list", async (req, res) => {
   } catch (error) {
     console.log(error);
     return res.status(400).json({ error: error.message });
-  } finally {
-    async () => {
-      await prisma.$disconnect();
-    };
   }
 });
 
