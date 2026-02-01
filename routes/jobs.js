@@ -25,7 +25,6 @@ router.post("/create", jobUpload.single("image"), async (req, res) => {
 
     // 2. Extract text fields (req.body contains the text parts)
     const { description, address, cost, mobile } = req.body;
-    console.log(req.body);
 
     // 3. Construct the image URL (accessible via static serve)
     // Ensure you configure express.static to serve the 'uploads' folder
@@ -40,7 +39,6 @@ router.post("/create", jobUpload.single("image"), async (req, res) => {
         postedById: mobile,
       },
     });
-    console.log(result);
 
     if (result) {
       // --- CACHE INVALIDATION ---
@@ -59,7 +57,7 @@ router.post("/create", jobUpload.single("image"), async (req, res) => {
         null,
         process.env.COLLECTOR_FCM_TOPIC,
       );
-      console.log(`after push notification`);
+
       // Send message to Telegram Bot
       sendMessageToBot(
         "created",

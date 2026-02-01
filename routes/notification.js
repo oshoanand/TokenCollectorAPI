@@ -22,7 +22,7 @@ router.get("/history", async (req, res) => {
 
 // POST Send
 router.post("/send", async (req, res) => {
-  console.log(req.body);
+  // console.log(req.body);
   const { type, target, title, body } = req.body;
 
   // Validation

@@ -32,7 +32,7 @@ router.post(
   validate,
   async (req, res) => {
     const { mobile, email, password, name, fcmToken, role } = req.body;
-
+    console.log(req.body);
     try {
       const userExits = await prisma.user.count({
         where: {
