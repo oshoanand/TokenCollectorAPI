@@ -16,18 +16,74 @@ const jobProofUpload = createUploader("proof");
 // 1. CREATE JOB
 // ==========================================
 
+// router.post("/create", jobUpload.single("image"), async (req, res) => {
+//   try {
+//     // 1. Check if file exists
+//     if (!req.file) {
+//       return res.status(400).json({ message: "No image file provided" });
+//     }
+
+//     // 2. Extract text fields (req.body contains the text parts)
+//     const { description, address, cost, mobile } = req.body;
+
+//     // 3. Construct the image URL (accessible via static serve)
+//     // Ensure you configure express.static to serve the 'uploads' folder
+//     const imageUrl = `https://api.klinciti.ru/uploads/jobs/${req.file.filename}`;
+
+//     const result = await prisma.job.create({
+//       data: {
+//         description: description,
+//         location: address,
+//         cost: cost,
+//         jobPhoto: imageUrl,
+//         postedById: mobile,
+//       },
+//     });
+
+//     if (result) {
+//       // --- CACHE INVALIDATION ---
+//       // 1. Clear the main 'active' list so collectors see the new job immediately
+//       // 2. Clear the 'posted' list for this specific user so their "My Jobs" updates
+
+//       // Invalidate Cache
+//       await invalidateKeys(["jobs:active", `jobs:postedBy:${mobile}`]);
+//       console.log(`after redis keys valided`);
+
+//       //Send FCM Push Notification to all the collectors
+//       sendPushNotification(
+//         "topic",
+//         `Новая работа ! 🚛`,
+//         `\uD83D\uDCCC Расположение : ${address} ${cost}₽ ${description.substring(0, 30)}`,
+//         null,
+//         process.env.COLLECTOR_FCM_TOPIC,
+//       );
+
+//       // Send message to Telegram Bot
+//       sendMessageToBot(
+//         "created",
+//         "Опубликовано новое задание",
+//         description,
+//         address,
+//         cost,
+//       );
+//     }
+//     return res.status(200).json({ message: "Job created successfully" });
+//   } catch (error) {
+//     console.error("Error creating job:", error.message);
+//     res.status(500).json({ message: "Server error" });
+//   }
+// });
+
 router.post("/create", jobUpload.single("image"), async (req, res) => {
+  // 1. Retrieve Socket IO Instance
+  const io = req.app.get("socketio");
+
   try {
-    // 1. Check if file exists
     if (!req.file) {
       return res.status(400).json({ message: "No image file provided" });
     }
 
-    // 2. Extract text fields (req.body contains the text parts)
     const { description, address, cost, mobile } = req.body;
-
-    // 3. Construct the image URL (accessible via static serve)
-    // Ensure you configure express.static to serve the 'uploads' folder
     const imageUrl = `https://api.klinciti.ru/uploads/jobs/${req.file.filename}`;
 
     const result = await prisma.job.create({
@@ -41,15 +97,23 @@ router.post("/create", jobUpload.single("image"), async (req, res) => {
     });
 
     if (result) {
-      // --- CACHE INVALIDATION ---
-      // 1. Clear the main 'active' list so collectors see the new job immediately
-      // 2. Clear the 'posted' list for this specific user so their "My Jobs" updates
-
-      // Invalidate Cache
       await invalidateKeys(["jobs:active", `jobs:postedBy:${mobile}`]);
-      console.log(`after redis keys valided`);
 
-      //Send FCM Push Notification to all the collectors
+      // --- NEW: EMIT SOCKET EVENT ---
+      if (io) {
+        io.emit("new_job", {
+          type: "JOB", // Important for frontend to distinguish
+          id: result.id,
+          description: result.description,
+          location: result.location,
+          cost: result.cost,
+          postedBy: result.postedById,
+          createdAt: result.createdAt,
+        });
+        console.log(`📡 Socket Event emitted for Job: ${result.id}`);
+      }
+
+      // Existing FCM Logic...
       sendPushNotification(
         "topic",
         `Новая работа ! 🚛`,
@@ -58,7 +122,7 @@ router.post("/create", jobUpload.single("image"), async (req, res) => {
         process.env.COLLECTOR_FCM_TOPIC,
       );
 
-      // Send message to Telegram Bot
+      // Existing Telegram Logic...
       sendMessageToBot(
         "created",
         "Опубликовано новое задание",
@@ -292,6 +356,58 @@ router.post("/complete", jobProofUpload.single("proof"), async (req, res) => {
   } catch (error) {
     console.error("Error completing job:", error);
     res.status(500).json({ message: "Server error" });
+  }
+});
+
+// ==========================================
+// 7. All Jobs
+// ==========================================
+router.get("/all-jobs", async (req, res) => {
+  try {
+    // 1. Get query params with defaults
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const skip = (page - 1) * limit;
+
+    // 2. Create a cache key that includes pagination params
+    // Note: If you have high write volume, caching paginated lists can be tricky.
+    // If you need real-time accuracy, you might remove caching here.
+    const cacheKey = `jobs_p${page}_l${limit}`;
+
+    const result = await fetchCached("jobs", cacheKey, async () => {
+      // Run two queries in transaction: Count total & Fetch data
+      const [total, jobs] = await prisma.$transaction([
+        prisma.job.count(),
+        prisma.job.findMany({
+          skip: skip,
+          take: limit,
+          orderBy: { createdAt: "desc" },
+          include: {
+            postedBy: {
+              select: { image: true, name: true, mobile: true },
+            },
+            finishedBy: {
+              select: { image: true, name: true, mobile: true },
+            },
+          },
+        }),
+      ]);
+
+      return {
+        data: jobs,
+        meta: {
+          total,
+          page,
+          limit,
+          totalPages: Math.ceil(total / limit),
+        },
+      };
+    });
+
+    return res.status(200).json(result);
+  } catch (error) {
+    console.error("Error fetching jobs:", error.message);
+    return res.status(500).json({ message: "Server error" });
   }
 });
 
