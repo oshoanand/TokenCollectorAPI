@@ -3,7 +3,12 @@ import { sendPushNotification } from "../lib/firebase.js";
 import "dotenv/config";
 import fs from "fs";
 import path from "path";
-import { fetchCached, prisma, invalidateKeys } from "../middleware/redis.js";
+import {
+  fetchCached,
+  prisma,
+  invalidateKeys,
+  invalidatePattern,
+} from "../middleware/redis.js";
 import { createUploader } from "../utils/multer.js";
 import { sendMessageToBot } from "../utils/telegram.js";
 
@@ -97,9 +102,13 @@ router.post("/create", jobUpload.single("image"), async (req, res) => {
     });
 
     if (result) {
+      // 1. Invalidate ALL paginated job pages (e.g. jobs_p1_l10, jobs_p2_l20)
+      // This ensures the new job appears on Page 1 for everyone immediately
+      await invalidatePattern("jobs_p*");
+      // 2. Invalidate specific lists (Legacy/Mobile specific keys)
       await invalidateKeys(["jobs:active", `jobs:postedBy:${mobile}`]);
 
-      // --- NEW: EMIT SOCKET EVENT ---
+      // --- EMIT SOCKET EVENT ---
       if (io) {
         io.emit("new_job", {
           type: "JOB", // Important for frontend to distinguish
@@ -122,7 +131,7 @@ router.post("/create", jobUpload.single("image"), async (req, res) => {
         process.env.COLLECTOR_FCM_TOPIC,
       );
 
-      // Existing Telegram Logic...
+      // Send Message to Telegram Bot
       sendMessageToBot(
         "created",
         "Опубликовано новое задание",
@@ -299,7 +308,8 @@ router.post("/complete", jobProofUpload.single("proof"), async (req, res) => {
     if (!job_id)
       return res.status(400).json({ message: "Job ID is required." });
 
-    const proofUrl = `${req.protocol}://${req.get("host")}/uploads/proof/${req.file.filename}`;
+    // const proofUrl = `${req.protocol}://${req.get("host")}/uploads/proof/${req.file.filename}`;
+    const proofUrl = `https://api.klinciti.ru/uploads/proof/${req.file.filename}`;
 
     // Update DB
     const updatedJob = await prisma.job.update({
@@ -315,7 +325,7 @@ router.post("/complete", jobProofUpload.single("proof"), async (req, res) => {
       },
     });
 
-    // --- CACHE INVALIDATION ---
+    // CACHE INVALIDATION ---
     // 1. Job is no longer "Active/Open" -> Clear jobs:open
     // 2. Job status changed for the Poster -> Clear jobs:posted:<poster_mobile>
     // 3. Job added to Collector's history -> Clear jobs:collected:<collector_mobile>
@@ -324,6 +334,11 @@ router.post("/complete", jobProofUpload.single("proof"), async (req, res) => {
       `jobs:postedBy:${updatedJob.postedBy.mobile}`,
       `jobs:collectedBy:${mobile}`,
     ]);
+
+    // 2. PAGINATION INVALIDATION (The Fix)
+    // We clear all keys that start with "jobs:jobs_p" (e.g., jobs:jobs_p1_l10)
+    // This forces the "All Jobs" admin table to refresh from the DB.
+    await invalidatePattern("jobs:jobs_p*");
 
     // Send Notification
     if (updatedJob.postedBy?.mobile) {

@@ -47,13 +47,37 @@ const invalidateKeys = async (keys) => {
   }
 };
 
-// const invalidateKeys = async (keys) => {
-//   if (Array.isArray(keys)) {
-//     await redis.del(...keys);
-//   } else {
-//     await redis.del(keys);
-//   }
-// };
+// --- Invalidate by Pattern (for Pagination) ---
+/**
+ * Deletes all keys matching a wildcard pattern (e.g. "jobs_p*")
+ * Uses SCAN to avoid blocking the Redis server.
+ */
+const invalidatePattern = async (pattern) => {
+  try {
+    let cursor = "0";
+    do {
+      // ioredis scan returns [nextCursor, keysArray]
+      const [newCursor, keys] = await redis.scan(
+        cursor,
+        "MATCH",
+        pattern,
+        "COUNT",
+        100,
+      );
+
+      cursor = newCursor;
+
+      if (keys.length > 0) {
+        await redis.del(...keys);
+        console.log(
+          `🗑️ Invalidated Pattern (${pattern}): ${keys.length} keys removed.`,
+        );
+      }
+    } while (cursor !== "0");
+  } catch (err) {
+    console.error(`❌ Failed to invalidate pattern "${pattern}":`, err);
+  }
+};
 
 /**
  * Generic Read-Through Cache Logic
@@ -144,4 +168,5 @@ export {
   redis,
   fetchCached,
   generateUniqueCode,
+  invalidatePattern,
 };
