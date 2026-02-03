@@ -5,11 +5,143 @@ import {
   prisma,
   generateUniqueCode,
   invalidateKeys,
+  invalidatePattern,
 } from "../middleware/redis.js";
 import webpush from "../utils/web-push.js";
 import "dotenv/config";
 
 const router = express.Router();
+
+// router.post("/create", async (req, res) => {
+//   const { mobileNumber, orderNumber, orderCode, fcmToken } = req.body;
+
+//   // Retrieve the Socket.io instance setup in app.js
+//   const io = req.app.get("socketio");
+
+//   try {
+//     const data = await prisma.token.findFirst({
+//       select: {
+//         tokenCode: true,
+//       },
+//       where: {
+//         mobileNumber: mobileNumber,
+//         tokenStatus: "REQUESTED",
+//       },
+//     });
+
+//     // Check if user already has an active token
+//     if (data != null) {
+//       return res.status(403).json({
+//         orderToken: data.tokenCode,
+//         message: "У вас уже есть активный токен!",
+//       });
+//     }
+//     // Proceed to create new token
+//     else {
+//       const tokenCode = await generateUniqueCode();
+//       const result = await prisma.token.create({
+//         data: {
+//           orderNumber: orderNumber,
+//           mobileNumber: mobileNumber,
+//           orderCode: orderCode,
+//           tokenCode: tokenCode,
+//           quantity: 1,
+//           tokenStatus: "REQUESTED",
+//           postedById: mobileNumber,
+//         },
+//       });
+
+//       if (result) {
+//         // Invalidate Cache
+//         await invalidateKeys([
+//           "tokens:all",
+//           `tokens:${mobileNumber}`,
+//           `token:${mobileNumber}`,
+//         ]);
+
+//         // LIVE NOTIFICATION: Emit event to Admin Panel
+//         // This payload must match what your Next.js Admin is listening for
+//         if (io) {
+//           io.emit("new_token", {
+//             id: result.id,
+//             tokenCode: result.tokenCode,
+//             orderNumber: result.orderNumber,
+//             mobileNumber: result.mobileNumber,
+//             status: result.tokenStatus,
+//             createdAt: result.createdAt || new Date(),
+//           });
+//           console.log(`📡 Socket Event emitted for Token: ${tokenCode}`);
+//         } else {
+//           console.warn("⚠️ Socket.io instance not found on req.app");
+//         }
+
+//         // BACKGROUND NOTIFICATION (Web Push - For Closed Tabs)
+
+//         try {
+//           // A. Fetch all subscribed admins from Postgres
+//           const subscriptions = await prisma.subscription.findMany();
+//           // B. Prepare the payload (Must match what sw.js expects)
+//           const notificationPayload = JSON.stringify({
+//             title: "New Token Generated!",
+//             body: `Token: ${tokenCode} | Order: ${orderNumber}`,
+//             url: `${ADMIN_PANEL_URL}/tokens`, // Deep link
+//           });
+
+//           // C. Send to all subscriptions in parallel
+//           const pushPromises = subscriptions.map((sub) => {
+//             // Construct the subscription object required by web-push
+//             const pushSubscription = {
+//               endpoint: sub.endpoint,
+//               keys: {
+//                 p256dh: sub.p256dh,
+//                 auth: sub.auth,
+//               },
+//             };
+
+//             return webpush
+//               .sendNotification(pushSubscription, notificationPayload)
+//               .catch(async (err) => {
+//                 // Cleanup: If subscription is invalid (410 Gone), delete it from DB
+//                 if (err.statusCode === 410 || err.statusCode === 404) {
+//                   console.log(`🗑️ Removing stale subscription: ${sub.id}`);
+//                   await prisma.subscription.delete({ where: { id: sub.id } });
+//                 } else {
+//                   console.error("Web Push Error:", err.message);
+//                 }
+//               });
+//           });
+
+//           // Execute all pushes without blocking the HTTP response
+//           Promise.all(pushPromises);
+//           console.log(
+//             `🔔 Background Notification sent to ${subscriptions.length} admins.`,
+//           );
+//         } catch (pushError) {
+//           console.error("Background Notification Failed:", pushError);
+//         }
+
+//         if (fcmToken) {
+//           sendPushNotification(
+//             "token",
+//             `Сгенерированный номер токена ${tokenCode} 📦`,
+//             "Токен действителен только в течение 48 часов⌚",
+//             fcmToken,
+//             null,
+//           );
+//         }
+
+//         return res.status(200).json({
+//           token: result.tokenCode,
+//           message: "success",
+//         });
+//       }
+//     }
+//   } catch (error) {
+//     console.error("Create Token Error:", error.message);
+//     return res.status(400).json({ message: "Something went wrong!" });
+//   }
+//   // REMOVED: finally { prisma.$disconnect() } - Do not disconnect in routes!
+// });
 
 router.post("/create", async (req, res) => {
   const { mobileNumber, orderNumber, orderCode, fcmToken } = req.body;
@@ -38,6 +170,7 @@ router.post("/create", async (req, res) => {
     // Proceed to create new token
     else {
       const tokenCode = await generateUniqueCode();
+
       const result = await prisma.token.create({
         data: {
           orderNumber: orderNumber,
@@ -51,17 +184,24 @@ router.post("/create", async (req, res) => {
       });
 
       if (result) {
-        // Invalidate Cache
+        // --- CACHE INVALIDATION UPDATED ---
+
+        // 1. Invalidate ALL paginated token pages (The most important fix)
+        // This clears keys like "tokens:tokens_p1_l10", "tokens:tokens_p2_l50"
+        await invalidatePattern("tokens:tokens_p*");
+
+        // 2. Invalidate specific user lists (Legacy/Mobile specific keys)
         await invalidateKeys([
-          "tokens:all",
           `tokens:${mobileNumber}`,
           `token:${mobileNumber}`,
         ]);
 
-        // LIVE NOTIFICATION: Emit event to Admin Panel
-        // This payload must match what your Next.js Admin is listening for
+        console.log(`✅ Cache invalidated for new token`);
+
+        // --- LIVE NOTIFICATION: Emit event to Admin Panel ---
         if (io) {
           io.emit("new_token", {
+            type: "TOKEN", // Explicitly set type for frontend differentiation
             id: result.id,
             tokenCode: result.tokenCode,
             orderNumber: result.orderNumber,
@@ -74,21 +214,17 @@ router.post("/create", async (req, res) => {
           console.warn("⚠️ Socket.io instance not found on req.app");
         }
 
-        // BACKGROUND NOTIFICATION (Web Push - For Closed Tabs)
-
+        // --- BACKGROUND NOTIFICATION (Web Push) ---
         try {
-          // A. Fetch all subscribed admins from Postgres
           const subscriptions = await prisma.subscription.findMany();
-          // B. Prepare the payload (Must match what sw.js expects)
+
           const notificationPayload = JSON.stringify({
             title: "New Token Generated!",
             body: `Token: ${tokenCode} | Order: ${orderNumber}`,
-            url: `${ADMIN_PANEL_URL}/tokens`, // Deep link
+            url: `${process.env.ADMIN_PANEL_URL || "https://admin.klinciti.ru"}/tokens`,
           });
 
-          // C. Send to all subscriptions in parallel
           const pushPromises = subscriptions.map((sub) => {
-            // Construct the subscription object required by web-push
             const pushSubscription = {
               endpoint: sub.endpoint,
               keys: {
@@ -100,7 +236,6 @@ router.post("/create", async (req, res) => {
             return webpush
               .sendNotification(pushSubscription, notificationPayload)
               .catch(async (err) => {
-                // Cleanup: If subscription is invalid (410 Gone), delete it from DB
                 if (err.statusCode === 410 || err.statusCode === 404) {
                   console.log(`🗑️ Removing stale subscription: ${sub.id}`);
                   await prisma.subscription.delete({ where: { id: sub.id } });
@@ -110,15 +245,12 @@ router.post("/create", async (req, res) => {
               });
           });
 
-          // Execute all pushes without blocking the HTTP response
           Promise.all(pushPromises);
-          console.log(
-            `🔔 Background Notification sent to ${subscriptions.length} admins.`,
-          );
         } catch (pushError) {
           console.error("Background Notification Failed:", pushError);
         }
 
+        // --- FCM NOTIFICATION ---
         if (fcmToken) {
           sendPushNotification(
             "token",
@@ -139,9 +271,7 @@ router.post("/create", async (req, res) => {
     console.error("Create Token Error:", error.message);
     return res.status(400).json({ message: "Something went wrong!" });
   }
-  // REMOVED: finally { prisma.$disconnect() } - Do not disconnect in routes!
 });
-
 router.get("/list/:mobile", async (req, res) => {
   try {
     const mobileNumber = req.params.mobile;
@@ -175,56 +305,176 @@ router.get("/list/:mobile", async (req, res) => {
   }
 });
 
-router.get("/all", async (req, res) => {
+router.get("/all-tokens", async (req, res) => {
   try {
-    const results = await fetchCached("tokens", "all", async () => {
-      return await prisma.token.findMany({
-        orderBy: { createdAt: "desc" },
-        include: {
-          postedBy: {
-            select: {
-              name: true,
+    // 1. Get query params (default to Page 1, Limit 10)
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const search = req.query.search || "";
+    const skip = (page - 1) * limit;
+
+    // 2. Construct Prisma "Where" Clause
+    // If search exists, filter by OR condition across 3 fields
+    const whereClause = search
+      ? {
+          OR: [
+            { tokenCode: { contains: search } }, // Case insensitive in Postgres usually requires mode: 'insensitive'
+            { mobileNumber: { contains: search } },
+            { orderNumber: { contains: search } },
+          ],
+        }
+      : {};
+
+    // 3. Create Unique Cache Key including Search
+    // Key format: "tokens_p1_l10_sMySearchQuery"
+    const cacheId = `tokens_p${page}_l${limit}_s${search.replace(/\s/g, "")}`;
+
+    const result = await fetchCached("tokens", cacheId, async () => {
+      // 4. Run Transaction
+      const [total, tokens] = await prisma.$transaction([
+        prisma.token.count({ where: whereClause }),
+        prisma.token.findMany({
+          where: whereClause,
+          skip: skip,
+          take: limit,
+          orderBy: { createdAt: "desc" },
+          include: {
+            postedBy: {
+              select: { name: true, mobile: true, image: true },
             },
           },
+        }),
+      ]);
+
+      return {
+        data: tokens,
+        meta: {
+          total,
+          page,
+          limit,
+          totalPages: Math.ceil(total / limit),
         },
-      });
+      };
     });
-    // console.log(results);
-    if (results && results.length > 0) {
-      return res.status(200).json(results);
+
+    // 5. Always return 200 with data structure (even if empty)
+    return res.status(200).json({
+      data: result.data || [],
+      meta: result.meta || { total: 0, page, limit, totalPages: 0 },
+    });
+  } catch (error) {
+    console.error("Error fetching tokens:", error.message);
+    return res.status(500).json({ message: "Server error" });
+  }
+});
+
+router.get("/all-tokens/:status", async (req, res) => {
+  const status = req.params.status;
+  try {
+    // 1. Get query params (default to Page 1, Limit 10)
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const skip = (page - 1) * limit;
+
+    // 2. Create a unique cache key for this specific page
+    // Redis Key becomes: "tokens:tokens_p1_l10"
+    const cacheId = `tokens_p${page}_l${limit}`;
+
+    const result = await fetchCached("tokens", cacheId, async () => {
+      // 3. Run Count and Find in a transaction
+      const [total, tokens] = await prisma.$transaction([
+        prisma.token.count(),
+        prisma.token.findMany({
+          skip: skip,
+          take: limit,
+          where: {
+            tokenStatus: status.toUpperCase(),
+          },
+          orderBy: { createdAt: "desc" },
+          include: {
+            postedBy: {
+              select: {
+                name: true,
+                mobile: true, // Useful to have mobile usually
+                image: true,
+              },
+            },
+          },
+        }),
+      ]);
+
+      // 4. Return structured response
+      return {
+        data: tokens,
+        meta: {
+          total,
+          page,
+          limit,
+          totalPages: Math.ceil(total / limit),
+        },
+      };
+    });
+
+    if (result.data && result.data.length > 0) {
+      return res.status(200).json(result);
     } else {
-      throw new Error("No Tokens");
+      // It's better to return an empty list with meta than an error for empty states
+      return res.status(200).json({
+        data: [],
+        meta: { total: 0, page, limit, totalPages: 0 },
+      });
     }
   } catch (error) {
     console.error("Error fetching tokens:", error.message);
-    return res.status(500).json({ message: error.message });
+    return res.status(500).json({ message: "Server error" });
   }
 });
 
-router.get("/all/:status", async (req, res) => {
-  const status = req.params.status;
+// router.patch("/status/:quantity/:token", async (req, res) => {
+//   const { token, quantity } = req.params;
+//   const { mobile, id } = req.query;
+//   try {
+//     const result = await prisma.token.update({
+//       data: {
+//         tokenStatus: "ISSUED",
+//         receivedAt: new Date().toISOString(),
+//         quantity: Number(quantity),
+//       },
+//       where: {
+//         mobileNumber: mobile,
+//         tokenCode: token,
+//         id: Number(id),
+//       },
+//     });
 
-  try {
-    const results = await prisma.token.findMany({
-      where: {
-        tokenStatus: status.toUpperCase(),
-      },
-    });
+//     if (result) {
+//       await invalidateKeys([
+//         "tokens:all",
+//         `tokens:${result.mobileNumber}`,
+//         `token:${result.mobileNumber}`,
+//       ]);
 
-    if (results != null) {
-      return res.status(200).json(results);
-    } else {
-      throw new Error("No orders found with the specified status");
-    }
-  } catch (error) {
-    console.log(error.message);
-    return res.status(400).json({ message: error.message });
-  }
-});
+//       sendPushNotification(
+//         "topic",
+//         `Ваш токен-номер ${token} выдан 👍`,
+//         "Благодарим вас за оформление заказов в наших пунктах выдачи. Надеемся, вам всё понравилось, и будем рады видеть вас снова. Всего доброго! 🎉",
+//         null,
+//         `user_${result.mobileNumber}`,
+//       );
+//     }
+//     return res.status(200).json({
+//       message: "Token status updated successfully",
+//     });
+//   } catch (error) {
+//     console.log(error.message);
+//     return res.status(400).json({ message: error.message });
+//   }
+// });
 
 router.patch("/status/:quantity/:token", async (req, res) => {
   const { token, quantity } = req.params;
   const { mobile, id } = req.query;
+
   try {
     const result = await prisma.token.update({
       data: {
@@ -240,12 +490,19 @@ router.patch("/status/:quantity/:token", async (req, res) => {
     });
 
     if (result) {
+      // --- CACHE INVALIDATION UPDATED ---
+
+      // 1. Invalidate ALL paginated token pages for the Admin Panel
+      // This clears keys like "tokens:tokens_p1_l10", "tokens:tokens_p2_l20" etc.
+      await invalidatePattern("tokens:tokens_p*");
+
+      // 2. Invalidate User-Specific Keys (Mobile App / Client Side)
       await invalidateKeys([
-        "tokens:all",
         `tokens:${result.mobileNumber}`,
         `token:${result.mobileNumber}`,
       ]);
 
+      // --- SEND NOTIFICATIONS ---
       sendPushNotification(
         "topic",
         `Ваш токен-номер ${token} выдан 👍`,
@@ -254,11 +511,12 @@ router.patch("/status/:quantity/:token", async (req, res) => {
         `user_${result.mobileNumber}`,
       );
     }
+
     return res.status(200).json({
       message: "Token status updated successfully",
     });
   } catch (error) {
-    console.log(error.message);
+    console.error("Update Token Error:", error.message);
     return res.status(400).json({ message: error.message });
   }
 });
