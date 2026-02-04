@@ -170,7 +170,6 @@ router.post("/create", async (req, res) => {
     // Proceed to create new token
     else {
       const tokenCode = await generateUniqueCode();
-
       const result = await prisma.token.create({
         data: {
           orderNumber: orderNumber,
@@ -272,7 +271,7 @@ router.post("/create", async (req, res) => {
     return res.status(400).json({ message: "Something went wrong!" });
   }
 });
-router.get("/list/:mobile", async (req, res) => {
+router.get("/user/all-tokens/:mobile", async (req, res) => {
   try {
     const mobileNumber = req.params.mobile;
 
@@ -368,7 +367,7 @@ router.get("/all-tokens", async (req, res) => {
   }
 });
 
-router.get("/all-tokens/:status", async (req, res) => {
+router.get("/all/:status", async (req, res) => {
   const status = req.params.status;
   try {
     // 1. Get query params (default to Page 1, Limit 10)
@@ -388,7 +387,7 @@ router.get("/all-tokens/:status", async (req, res) => {
           skip: skip,
           take: limit,
           where: {
-            tokenStatus: status.toUpperCase(),
+            tokenStatus: status,
           },
           orderBy: { createdAt: "desc" },
           include: {
@@ -521,8 +520,8 @@ router.patch("/status/:quantity/:token", async (req, res) => {
   }
 });
 
-router.get("/:mobileId", async (req, res) => {
-  const mobileNumber = req.params.mobileId;
+router.get("/user/:mobile", async (req, res) => {
+  const mobileNumber = req.params.mobile;
   try {
     const result = await fetchCached("token", mobileNumber, async () => {
       return await prisma.token.findFirst({
