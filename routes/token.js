@@ -145,31 +145,25 @@ const router = express.Router();
 
 router.post("/create", async (req, res) => {
   const { mobileNumber, orderNumber, orderCode, fcmToken } = req.body;
-
-  // Retrieve the Socket.io instance setup in app.js
   const io = req.app.get("socketio");
 
   try {
     const data = await prisma.token.findFirst({
-      select: {
-        tokenCode: true,
-      },
+      select: { tokenCode: true },
       where: {
         mobileNumber: mobileNumber,
         tokenStatus: "REQUESTED",
       },
     });
 
-    // Check if user already has an active token
     if (data != null) {
       return res.status(403).json({
         orderToken: data.tokenCode,
         message: "У вас уже есть активный токен!",
       });
-    }
-    // Proceed to create new token
-    else {
+    } else {
       const tokenCode = await generateUniqueCode();
+
       const result = await prisma.token.create({
         data: {
           orderNumber: orderNumber,
@@ -183,13 +177,15 @@ router.post("/create", async (req, res) => {
       });
 
       if (result) {
-        // --- CACHE INVALIDATION UPDATED ---
+        // ============================================================
+        // 🚀 CACHE INVALIDATION UPDATED
+        // ============================================================
 
-        // 1. Invalidate ALL paginated token pages (The most important fix)
-        // This clears keys like "tokens:tokens_p1_l10", "tokens:tokens_p2_l50"
-        await invalidatePattern("tokens:tokens_p*");
+        // 1. Invalidate ALL Admin Panel Lists (Pagination + Status + Search)
+        // This matches "tokens:tokens_p...", "tokens:tokens_statusREQUESTED...", etc.
+        await invalidatePattern("tokens:tokens*");
 
-        // 2. Invalidate specific user lists (Legacy/Mobile specific keys)
+        // 2. Invalidate Mobile App User-Specific Lists
         await invalidateKeys([
           `tokens:${mobileNumber}`,
           `token:${mobileNumber}`,
@@ -197,10 +193,10 @@ router.post("/create", async (req, res) => {
 
         console.log(`✅ Cache invalidated for new token`);
 
-        // --- LIVE NOTIFICATION: Emit event to Admin Panel ---
+        // --- LIVE NOTIFICATION (Socket.io) ---
         if (io) {
           io.emit("new_token", {
-            type: "TOKEN", // Explicitly set type for frontend differentiation
+            type: "TOKEN",
             id: result.id,
             tokenCode: result.tokenCode,
             orderNumber: result.orderNumber,
@@ -226,10 +222,7 @@ router.post("/create", async (req, res) => {
           const pushPromises = subscriptions.map((sub) => {
             const pushSubscription = {
               endpoint: sub.endpoint,
-              keys: {
-                p256dh: sub.p256dh,
-                auth: sub.auth,
-              },
+              keys: { p256dh: sub.p256dh, auth: sub.auth },
             };
 
             return webpush
@@ -370,31 +363,46 @@ router.get("/all-tokens", async (req, res) => {
 router.get("/all/:status", async (req, res) => {
   const status = req.params.status;
   try {
-    // 1. Get query params (default to Page 1, Limit 10)
+    // 1. Get query params
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
+    const search = req.query.search || ""; // <--- FIX: Capture search param
     const skip = (page - 1) * limit;
 
-    // 2. Create a unique cache key for this specific page
-    // Redis Key becomes: "tokens:tokens_p1_l10"
-    const cacheId = `tokens_p${page}_l${limit}`;
+    // 2. Construct Where Clause (Status + Search)
+    const whereClause = {
+      tokenStatus: status, // <--- Filter by Status
+      ...(search
+        ? {
+            OR: [
+              { tokenCode: { contains: search } },
+              { mobileNumber: { contains: search } },
+              { orderNumber: { contains: search } },
+            ],
+          }
+        : {}),
+    };
+
+    // 3. Create Unique Cache Key
+    // Format: "tokens_statusISSUED_p1_l10_sMySearch"
+    // This prevents collisions between different statuses and search terms
+    const cacheId = `tokens_status${status}_p${page}_l${limit}_s${search.replace(/\s/g, "")}`;
 
     const result = await fetchCached("tokens", cacheId, async () => {
-      // 3. Run Count and Find in a transaction
+      // 4. Run Transaction
       const [total, tokens] = await prisma.$transaction([
-        prisma.token.count(),
+        // FIX: Count only tokens matching the status/search
+        prisma.token.count({ where: whereClause }),
         prisma.token.findMany({
           skip: skip,
           take: limit,
-          where: {
-            tokenStatus: status,
-          },
+          where: whereClause,
           orderBy: { createdAt: "desc" },
           include: {
             postedBy: {
               select: {
                 name: true,
-                mobile: true, // Useful to have mobile usually
+                mobile: true,
                 image: true,
               },
             },
@@ -402,7 +410,6 @@ router.get("/all/:status", async (req, res) => {
         }),
       ]);
 
-      // 4. Return structured response
       return {
         data: tokens,
         meta: {
@@ -414,61 +421,16 @@ router.get("/all/:status", async (req, res) => {
       };
     });
 
-    if (result.data && result.data.length > 0) {
-      return res.status(200).json(result);
-    } else {
-      // It's better to return an empty list with meta than an error for empty states
-      return res.status(200).json({
-        data: [],
-        meta: { total: 0, page, limit, totalPages: 0 },
-      });
-    }
+    // 5. Response
+    return res.status(200).json({
+      data: result.data || [],
+      meta: result.meta || { total: 0, page, limit, totalPages: 0 },
+    });
   } catch (error) {
     console.error("Error fetching tokens:", error.message);
     return res.status(500).json({ message: "Server error" });
   }
 });
-
-// router.patch("/status/:quantity/:token", async (req, res) => {
-//   const { token, quantity } = req.params;
-//   const { mobile, id } = req.query;
-//   try {
-//     const result = await prisma.token.update({
-//       data: {
-//         tokenStatus: "ISSUED",
-//         receivedAt: new Date().toISOString(),
-//         quantity: Number(quantity),
-//       },
-//       where: {
-//         mobileNumber: mobile,
-//         tokenCode: token,
-//         id: Number(id),
-//       },
-//     });
-
-//     if (result) {
-//       await invalidateKeys([
-//         "tokens:all",
-//         `tokens:${result.mobileNumber}`,
-//         `token:${result.mobileNumber}`,
-//       ]);
-
-//       sendPushNotification(
-//         "topic",
-//         `Ваш токен-номер ${token} выдан 👍`,
-//         "Благодарим вас за оформление заказов в наших пунктах выдачи. Надеемся, вам всё понравилось, и будем рады видеть вас снова. Всего доброго! 🎉",
-//         null,
-//         `user_${result.mobileNumber}`,
-//       );
-//     }
-//     return res.status(200).json({
-//       message: "Token status updated successfully",
-//     });
-//   } catch (error) {
-//     console.log(error.message);
-//     return res.status(400).json({ message: error.message });
-//   }
-// });
 
 router.patch("/status/:quantity/:token", async (req, res) => {
   const { token, quantity } = req.params;
@@ -489,13 +451,19 @@ router.patch("/status/:quantity/:token", async (req, res) => {
     });
 
     if (result) {
-      // --- CACHE INVALIDATION UPDATED ---
+      // ============================================================
+      // 🚀 CACHE INVALIDATION UPDATED
+      // ============================================================
 
-      // 1. Invalidate ALL paginated token pages for the Admin Panel
-      // This clears keys like "tokens:tokens_p1_l10", "tokens:tokens_p2_l20" etc.
-      await invalidatePattern("tokens:tokens_p*");
+      // 1. Invalidate ALL Admin Panel Lists
+      // We use the broader wildcard "tokens:tokens*" to catch:
+      // - "tokens:tokens_p1..." (The main list)
+      // - "tokens:tokens_statusREQUESTED..." (The filtered tabs)
+      // - "tokens:tokens_..._sSearch..." (Search results)
+      await invalidatePattern("tokens:tokens*");
 
-      // 2. Invalidate User-Specific Keys (Mobile App / Client Side)
+      // 2. Invalidate User-Specific Keys (Mobile App)
+      // This ensures the user sees the updated status on their phone immediately
       await invalidateKeys([
         `tokens:${result.mobileNumber}`,
         `token:${result.mobileNumber}`,
