@@ -268,17 +268,24 @@ router.delete("/:id", async (req, res) => {
     if (!job) return res.status(404).json({ message: "Job not found" });
 
     if (job.status === "ACTIVE") {
-      // 2. Delete from DB
-      await prisma.job.delete({ where: { id: jobId } });
+      // 2. Delete from DB or Update the DB
+      //await prisma.job.delete({ where: { id: jobId } });
+
+      await prisma.job.update({
+        where: { id: jobId },
+        data: {
+          status: "INACTIVE",
+        },
+      });
 
       // 3. Delete Local File (Async - don't block response)
-      if (job.jobPhoto) {
-        const filename = job.jobPhoto.split("/").pop();
-        const filePath = path.join(process.cwd(), "uploads/jobs", filename); // Use process.cwd() for reliability
-        fs.unlink(filePath, (err) => {
-          if (err) console.error("File delete error", err);
-        });
-      }
+      // if (job.jobPhoto) {
+      //   const filename = job.jobPhoto.split("/").pop();
+      //   const filePath = path.join(process.cwd(), "uploads/jobs", filename); // Use process.cwd() for reliability
+      //   fs.unlink(filePath, (err) => {
+      //     if (err) console.error("File delete error", err);
+      //   });
+      // }
 
       // --- CACHE INVALIDATION ---
       // Removing an active job affects the 'active' list and the 'posted' list of that user
