@@ -1,7 +1,7 @@
 // routes/fcm.js (or wherever your routes are)
 import express from "express";
 import { messaging } from "../lib/firebase.js";
-import { prisma } from "../utils/prisma.js";
+import prisma from "../utils/prisma.js";
 import "dotenv/config";
 
 const router = express.Router();
