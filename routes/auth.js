@@ -9,6 +9,8 @@ import {
   registerValidationRules,
 } from "../utils/auth-validator.js";
 
+import { sendResetPasswordLinkEmail } from "../mailer/email-sender.js";
+
 import "dotenv/config";
 
 const router = express.Router();
@@ -191,6 +193,93 @@ router.post("/password/reset", async (req, res) => {
     console.log("Database/Server Error:", error.message);
     // This only runs if Prisma/Database fails, which is what you want.
     return res.status(400).json({ message: "Something went wrong !" });
+  }
+});
+
+// password reset implementation for web app
+
+//  FORGOT PASSWORD (Generate Link)
+router.post("/forgot-password", async (req, res) => {
+  try {
+    const { mobile } = req.body;
+    const user = await prisma.user.findUnique({ where: { mobile } });
+
+    // Security: Always return 200 even if user not found to prevent email enumeration
+    if (!user) {
+      return res
+        .status(200)
+        .json({ message: "If that email exists, we sent a link." });
+    }
+
+    // Generate Token
+    // CRITICAL: We include the user's current password hash in the secret.
+    // If the password changes, this secret changes, invalidating all old links instantly.
+    const secret = process.env.SECRET + user.password;
+    const token = jwt.sign({ id: user.id, email: user.email }, secret, {
+      expiresIn: "2h", // Link valid for 2 hours
+    });
+
+    const link = `${process.env.WEB_APP_URL}/reset-password/${token}`;
+    //  Send Verification Email (Using the utility)
+    try {
+      // We do not await this if we want the response to return immediately,
+      // but usually, it's safer to await to catch config errors early.
+
+      await sendResetPasswordLinkEmail(
+        link,
+        user.email,
+        user.name || "Пользователь",
+      );
+      console.log(`Reset password email queued `);
+    } catch (emailError) {
+      // Log error but treat registration as successful
+      console.error(
+        "Failed to send reset password  email :",
+        emailError.message,
+      );
+      // Optional: You might want to flag the user in DB that email sending failed
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Ссылка отправлена на почту",
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Internal Server Error" });
+  }
+});
+
+//  RESET PASSWORD (Verify & Update)
+router.post("/reset-password/:token", async (req, res) => {
+  const { token } = req.params;
+  const { password, mobile } = req.body;
+
+  try {
+    const user = await prisma.user.findUnique({ where: { mobile: mobile } });
+    if (!user) return res.status(400).json({ message: "Invalid user." });
+
+    // Verify Token using the same composite secret
+    const secret = process.env.SECRET + user.password;
+    try {
+      jwt.verify(token, secret);
+    } catch (err) {
+      return res.status(400).json({ message: "Invalid or expired link." });
+    }
+
+    // Hash new password
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(password, salt);
+
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { password: hashedPassword },
+    });
+
+    res.status(200).json({ message: "Password updated successfully." });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Internal Server Error" });
   }
 });
 
