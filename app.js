@@ -37,6 +37,7 @@ async function initializeExpressServer() {
   const allowedDomains = [
     "http://localhost:3000",
     "http://localhost:5000",
+    process.env.WEB_APP_URL,
     process.env.ADMIN_PANEL_URL, // Add your production admin URL in .env
   ].filter(Boolean); // Removes undefined if env is missing
 
