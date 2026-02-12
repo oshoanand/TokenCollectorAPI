@@ -1,8 +1,6 @@
 import express from "express";
 import { sendPushNotification } from "../lib/firebase.js";
 import "dotenv/config";
-import fs from "fs";
-import path from "path";
 import {
   fetchCached,
   prisma,
@@ -21,64 +19,6 @@ const jobProofUpload = createUploader("proof");
 // 1. CREATE JOB
 // ==========================================
 
-// router.post("/create", jobUpload.single("image"), async (req, res) => {
-//   try {
-//     // 1. Check if file exists
-//     if (!req.file) {
-//       return res.status(400).json({ message: "No image file provided" });
-//     }
-
-//     // 2. Extract text fields (req.body contains the text parts)
-//     const { description, address, cost, mobile } = req.body;
-
-//     // 3. Construct the image URL (accessible via static serve)
-//     // Ensure you configure express.static to serve the 'uploads' folder
-//     const imageUrl = `https://api.klinciti.ru/uploads/jobs/${req.file.filename}`;
-
-//     const result = await prisma.job.create({
-//       data: {
-//         description: description,
-//         location: address,
-//         cost: cost,
-//         jobPhoto: imageUrl,
-//         postedById: mobile,
-//       },
-//     });
-
-//     if (result) {
-//       // --- CACHE INVALIDATION ---
-//       // 1. Clear the main 'active' list so collectors see the new job immediately
-//       // 2. Clear the 'posted' list for this specific user so their "My Jobs" updates
-
-//       // Invalidate Cache
-//       await invalidateKeys(["jobs:active", `jobs:postedBy:${mobile}`]);
-//       console.log(`after redis keys valided`);
-
-//       //Send FCM Push Notification to all the collectors
-//       sendPushNotification(
-//         "topic",
-//         `Новая работа ! 🚛`,
-//         `\uD83D\uDCCC Расположение : ${address} ${cost}₽ ${description.substring(0, 30)}`,
-//         null,
-//         process.env.COLLECTOR_FCM_TOPIC,
-//       );
-
-//       // Send message to Telegram Bot
-//       sendMessageToBot(
-//         "created",
-//         "Опубликовано новое задание",
-//         description,
-//         address,
-//         cost,
-//       );
-//     }
-//     return res.status(200).json({ message: "Job created successfully" });
-//   } catch (error) {
-//     console.error("Error creating job:", error.message);
-//     res.status(500).json({ message: "Server error" });
-//   }
-// });
-
 router.post("/create", jobUpload.single("image"), async (req, res) => {
   // 1. Retrieve Socket IO Instance
   const io = req.app.get("socketio");
@@ -89,7 +29,7 @@ router.post("/create", jobUpload.single("image"), async (req, res) => {
     }
 
     const { description, address, cost, mobile } = req.body;
-    const imageUrl = `https://api.klinciti.ru/uploads/jobs/${req.file.filename}`;
+    const imageUrl = `${process.env.PHOTO_UPLOAD_URL}/uploads/jobs/${req.file.filename}`;
 
     const result = await prisma.job.create({
       data: {
@@ -316,7 +256,7 @@ router.post("/complete", jobProofUpload.single("proof"), async (req, res) => {
       return res.status(400).json({ message: "Job ID is required." });
 
     // const proofUrl = `${req.protocol}://${req.get("host")}/uploads/proof/${req.file.filename}`;
-    const proofUrl = `https://api.klinciti.ru/uploads/proof/${req.file.filename}`;
+    const proofUrl = `${process.env.PHOTO_UPLOAD_DIR}/proof/${req.file.filename}`;
 
     // Update DB
     const updatedJob = await prisma.job.update({

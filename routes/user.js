@@ -54,7 +54,8 @@ router.put(
       }
 
       if (req.file) {
-        const imageUrl = `https://api.klinciti.ru/uploads/profiles/${req.file.filename}`;
+        // const imageUrl = `https://api.klinciti.ru/uploads/profiles/${req.file.filename}`;
+        const imageUrl = `${process.env.PHOTO_UPLOAD_URL}/uploads/profiles/${req.file.filename}`;
 
         const result = await prisma.user.update({
           where: {

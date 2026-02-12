@@ -15,6 +15,7 @@ import tokenRoutes from "./routes/token.js";
 import adminRoutes from "./routes/admin.js";
 import notificationRoutes from "./routes/notification.js";
 import supportRoutes from "./routes/support.js";
+import fcmRoutes from "./routes/fcm.js";
 
 // Services
 //import setupTTL from "./utils/ttl-service.js";
@@ -35,7 +36,7 @@ async function initializeExpressServer() {
   // 4. Define Allowed Domains (Shared between Express and Socket.io)
   const allowedDomains = [
     "http://localhost:3000",
-
+    "http://localhost:5000",
     process.env.ADMIN_PANEL_URL, // Add your production admin URL in .env
   ].filter(Boolean); // Removes undefined if env is missing
 
@@ -113,6 +114,7 @@ async function initializeExpressServer() {
   app.use("/api/admin", adminRoutes);
   app.use("/api/notifications", notificationRoutes);
   app.use("/api/support", supportRoutes);
+  app.use("/api/fcm", fcmRoutes);
 
   // --- Server Start ---
 
