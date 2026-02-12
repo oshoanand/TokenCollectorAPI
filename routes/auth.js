@@ -268,11 +268,12 @@ router.post("/reset-password/:token", async (req, res) => {
     }
 
     // Hash new password
-    const salt = await bcrypt.genSalt(10);
-    const hashedPassword = await bcrypt.hash(password, salt);
+
+    const salt = await genSalt(10);
+    const hashedPassword = await hash(password, salt);
 
     await prisma.user.update({
-      where: { id: user.id },
+      where: { mobile: mobile },
       data: { password: hashedPassword },
     });
 

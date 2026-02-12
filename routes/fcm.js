@@ -10,9 +10,9 @@ const router = express.Router();
 
 router.post("/save-fcm", async (req, res) => {
   try {
-    const { token } = req.body;
+    const { token, mobile } = req.body;
     // req.user comes from your Auth Middleware (JWT/Session)
-    const { mobile } = req.user;
+    // const { mobile } = req.user;
 
     if (!token) return res.status(400).json({ message: "Token is required" });
     if (!mobile) return res.status(401).json({ message: "Unauthorized" });
