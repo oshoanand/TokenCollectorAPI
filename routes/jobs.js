@@ -256,7 +256,7 @@ router.post("/complete", jobProofUpload.single("proof"), async (req, res) => {
       return res.status(400).json({ message: "Job ID is required." });
 
     // const proofUrl = `${req.protocol}://${req.get("host")}/uploads/proof/${req.file.filename}`;
-    const proofUrl = `${process.env.PHOTO_UPLOAD_DIR}/proof/${req.file.filename}`;
+    const proofUrl = `${process.env.PHOTO_UPLOAD_URL}/uploads/proof/${req.file.filename}`;
 
     // Update DB
     const updatedJob = await prisma.job.update({
