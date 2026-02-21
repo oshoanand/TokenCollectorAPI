@@ -6,7 +6,7 @@ import {
   prisma,
   invalidateKeys,
   invalidatePattern,
-} from "../middleware/redis.js";
+} from "../services/redis.js";
 import { createUploader } from "../utils/multer.js";
 import { sendMessageToBot } from "../utils/telegram.js";
 

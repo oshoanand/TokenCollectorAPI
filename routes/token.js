@@ -6,7 +6,7 @@ import {
   generateUniqueCode,
   invalidateKeys,
   invalidatePattern,
-} from "../middleware/redis.js";
+} from "../services/redis.js";
 import webpush from "../utils/web-push.js";
 import "dotenv/config";
 

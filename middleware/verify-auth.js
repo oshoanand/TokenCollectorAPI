@@ -15,18 +15,22 @@ function extractToken(req) {
 
 export const verifyAuth = async (req, res, next) => {
   const token = extractToken(req);
-  console.log(token);
-  // req.body.token || req.query.token || req.headers["x-access-token"];
-  // console.log(token);
 
+  // console.log(token);
   if (!token) {
     return res.status(401).json({ error: "Unauthorized access " });
   }
   try {
-    const { id } = jwt.verify(token, process.env.SECRET, {
+    // 1. Verify the token
+    const decoded = jwt.verify(token, process.env.SECRET, {
       algorithms: "HS256",
     });
-    // console.log(id);
+
+    // console.log(decoded.role);
+    // 2. CRITICAL FIX: Attach the user ID to the request object
+    // This allows your controllers to access 'req.user.id'
+    req.user = { id: decoded.id, role: decoded.role };
+
     next();
   } catch (err) {
     console.log(err);
