@@ -141,7 +141,7 @@ router.get("/list", async (req, res) => {
         orderBy: { createdAt: "desc" },
         include: {
           finishedBy: {
-            select: { image: true, name: true, mobile: true },
+            select: { id: true, image: true, name: true, mobile: true },
           },
         },
       });

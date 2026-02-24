@@ -60,7 +60,7 @@ router.put(
 
       if (req.file) {
         const imageUrl = `${process.env.PHOTO_UPLOAD_URL}/uploads/profiles/${req.file.filename}`;
-
+        console.log(imageUrl);
         const result = await prisma.user.update({
           where: {
             mobile: mobile,
@@ -69,6 +69,8 @@ router.put(
             image: imageUrl,
           },
         });
+
+        console.log(result);
         return res.status(200).json({
           message: "Profile Image updated successfully",
           image: result.image,

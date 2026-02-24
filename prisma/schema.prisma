@@ -217,17 +217,36 @@ model ChatSession {
   @@unique([user1Id, user2Id])
 }
 
+// model ChatMessage {
+//   id     String  @id @default(cuid())
+//   text   String
+//   isRead Boolean @default(false)
+
+//   senderId String
+//   sender   User   @relation(fields: [senderId], references: [id])
+
+//   chatSessionId String
+//   session       ChatSession @relation(fields: [chatSessionId], references: [id], onDelete: Cascade)
+
+//   readAt    DateTime?
+//   createdAt DateTime  @default(now())
+// }
+
 model ChatMessage {
-  id     String  @id @default(cuid())
-  text   String
-  isRead Boolean @default(false)
-
-  senderId String
-  sender   User   @relation(fields: [senderId], references: [id])
-
+  id            String    @id @default(cuid())
   chatSessionId String
-  session       ChatSession @relation(fields: [chatSessionId], references: [id], onDelete: Cascade)
+  senderId      String
+  text          String? // Made optional for image-only messages
+  imageUrl      String? // Added for images
+  isRead        Boolean   @default(false)
+  readAt        DateTime?
+  createdAt     DateTime  @default(now())
 
-  readAt    DateTime?
-  createdAt DateTime  @default(now())
+  // Self-relation for replies
+  replyToId String?
+  replyTo   ChatMessage?  @relation("MessageReplies", fields: [replyToId], references: [id])
+  replies   ChatMessage[] @relation("MessageReplies")
+
+  session ChatSession @relation(fields: [chatSessionId], references: [id])
+  sender  User        @relation(fields: [senderId], references: [id])
 }
